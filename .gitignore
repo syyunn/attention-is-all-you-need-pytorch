@@ -101,3 +101,7 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# # Below is Added by Zachary
+.idea
+data
