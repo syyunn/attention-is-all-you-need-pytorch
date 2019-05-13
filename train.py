@@ -16,8 +16,9 @@ from dataset import TranslationDataset, paired_collate_fn
 from transformer.Models import Transformer
 from transformer.Optim import ScheduledOptim
 
+
 def cal_performance(pred, gold, smoothing=False):
-    ''' Apply label smoothing if needed '''
+    """ Apply label smoothing if needed """
 
     loss = cal_loss(pred, gold, smoothing)
 
@@ -31,7 +32,7 @@ def cal_performance(pred, gold, smoothing=False):
 
 
 def cal_loss(pred, gold, smoothing):
-    ''' Calculate cross entropy loss, apply label smoothing if needed. '''
+    """ Calculate cross entropy loss, apply label smoothing if needed. """
 
     gold = gold.contiguous().view(-1)
 
@@ -47,13 +48,15 @@ def cal_loss(pred, gold, smoothing):
         loss = -(one_hot * log_prb).sum(dim=1)
         loss = loss.masked_select(non_pad_mask).sum()  # average later
     else:
-        loss = F.cross_entropy(pred, gold, ignore_index=Constants.PAD, reduction='sum')
+        loss = F.cross_entropy(pred, gold,
+                               ignore_index=Constants.PAD,
+                               reduction='sum')
 
     return loss
 
 
 def train_epoch(model, training_data, optimizer, device, smoothing):
-    ''' Epoch operation in training phase'''
+    """ Epoch operation in training phase """
 
     model.train()
 
@@ -92,8 +95,9 @@ def train_epoch(model, training_data, optimizer, device, smoothing):
     accuracy = n_word_correct/n_word_total
     return loss_per_word, accuracy
 
+
 def eval_epoch(model, validation_data, device):
-    ''' Epoch operation in evaluation phase '''
+    """ Epoch operation in evaluation phase """
 
     model.eval()
 
@@ -126,8 +130,9 @@ def eval_epoch(model, validation_data, device):
     accuracy = n_word_correct/n_word_total
     return loss_per_word, accuracy
 
+
 def train(model, training_data, validation_data, optimizer, device, opt):
-    ''' Start training '''
+    """ Start training """
 
     log_train_file = None
     log_valid_file = None
@@ -189,16 +194,22 @@ def train(model, training_data, validation_data, optimizer, device, opt):
                     epoch=epoch_i, loss=valid_loss,
                     ppl=math.exp(min(valid_loss, 100)), accu=100*valid_accu))
 
+
 def main():
-    ''' Main function '''
+    """ Main function """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-data', required=True)
+    parser.add_argument('-data',
+                        default=
+                        "/home/zachary/projects/"
+                        "attention-is-all-you-need-pytorch/data/"
+                        "gigaword.low.pt",
+                        required=True)
 
     parser.add_argument('-epoch', type=int, default=10)
-    parser.add_argument('-batch_size', type=int, default=64)
+    parser.add_argument('-batch_size', type=int, default=16)
 
-    #parser.add_argument('-d_word_vec', type=int, default=512)
+    # parser.add_argument('-d_word_vec', type=int, default=512)
     parser.add_argument('-d_model', type=int, default=512)
     parser.add_argument('-d_inner_hid', type=int, default=2048)
     parser.add_argument('-d_k', type=int, default=64)
@@ -212,9 +223,14 @@ def main():
     parser.add_argument('-embs_share_weight', action='store_true')
     parser.add_argument('-proj_share_weight', action='store_true')
 
-    parser.add_argument('-log', default=None)
-    parser.add_argument('-save_model', default=None)
-    parser.add_argument('-save_mode', type=str, choices=['all', 'best'], default='best')
+    parser.add_argument('-log',
+                        default=None)
+    parser.add_argument('-save_model',
+                        default='trained')
+    parser.add_argument('-save_mode',
+                        type=str,
+                        choices=['all', 'best'],
+                        default='best')
 
     parser.add_argument('-no_cuda', action='store_true')
     parser.add_argument('-label_smoothing', action='store_true')
@@ -223,16 +239,16 @@ def main():
     opt.cuda = not opt.no_cuda
     opt.d_word_vec = opt.d_model
 
-    #========= Loading Dataset =========#
+    # ========= Loading Dataset ========= #
     data = torch.load(opt.data)
-    opt.max_token_seq_len = data['settings'].max_token_seq_len
+    opt.max_token_seq_len = data['settings'].max_token_seq_len  # default is 50
 
     training_data, validation_data = prepare_dataloaders(data, opt)
 
     opt.src_vocab_size = training_data.dataset.src_vocab_size
     opt.tgt_vocab_size = training_data.dataset.tgt_vocab_size
 
-    #========= Preparing Model =========#
+    # ========= Preparing Model ========= #
     if opt.embs_share_weight:
         assert training_data.dataset.src_word2idx == training_data.dataset.tgt_word2idx, \
             'The src/tgt word2idx table are different but asked to share word embedding.'
@@ -265,7 +281,7 @@ def main():
 
 
 def prepare_dataloaders(data, opt):
-    # ========= Preparing DataLoader =========#
+    # ========= Preparing DataLoader ========= #
     train_loader = torch.utils.data.DataLoader(
         TranslationDataset(
             src_word2idx=data['dict']['src'],

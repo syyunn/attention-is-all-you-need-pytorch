@@ -1,10 +1,11 @@
-''' Handling the data io '''
+""" Handling the data io """
 import argparse
 import torch
 import transformer.Constants as Constants
 
+
 def read_instances_from_file(inst_file, max_sent_len, keep_case):
-    ''' Convert file into word seq lists and vocab '''
+    """ Convert file into word seq lists and vocab """
 
     word_insts = []
     trimmed_sent_count = 0
@@ -18,20 +19,22 @@ def read_instances_from_file(inst_file, max_sent_len, keep_case):
             word_inst = words[:max_sent_len]
 
             if word_inst:
-                word_insts += [[Constants.BOS_WORD] + word_inst + [Constants.EOS_WORD]]
+                word_insts += [[Constants.BOS_WORD] + word_inst +
+                               [Constants.EOS_WORD]]
             else:
                 word_insts += [None]
 
     print('[Info] Get {} instances from {}'.format(len(word_insts), inst_file))
 
     if trimmed_sent_count > 0:
-        print('[Warning] {} instances are trimmed to the max sentence length {}.'
-              .format(trimmed_sent_count, max_sent_len))
+        print('[Warning] {} instances are trimmed to the max sentence length '
+              '{}.'.format(trimmed_sent_count, max_sent_len))
 
     return word_insts
 
+
 def build_vocab_idx(word_insts, min_word_count):
-    ''' Trim vocab by number of occurence '''
+    """ Trim vocab by number of occurrence """
 
     full_vocab = set(w for sent in word_insts for w in sent)
     print('[Info] Original Vocabulary size =', len(full_vocab))
@@ -61,12 +64,14 @@ def build_vocab_idx(word_insts, min_word_count):
     print("[Info] Ignored word count = {}".format(ignored_word_count))
     return word2idx
 
+
 def convert_instance_to_idx_seq(word_insts, word2idx):
-    ''' Mapping words to idx sequence. '''
+    """ Mapping words to idx sequence. """
     return [[word2idx.get(w, Constants.UNK) for w in s] for s in word_insts]
 
+
 def main():
-    ''' Main function '''
+    """ Main function """
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-train_src', required=True)
@@ -81,7 +86,8 @@ def main():
     parser.add_argument('-vocab', default=None)
 
     opt = parser.parse_args()
-    opt.max_token_seq_len = opt.max_word_seq_len + 2 # include the <s> and </s>
+    opt.max_token_seq_len = opt.max_word_seq_len + 2
+    # include the <s> and </s>
 
     # Training set
     train_src_word_insts = read_instances_from_file(
@@ -91,13 +97,15 @@ def main():
 
     if len(train_src_word_insts) != len(train_tgt_word_insts):
         print('[Warning] The training instance count is not equal.')
-        min_inst_count = min(len(train_src_word_insts), len(train_tgt_word_insts))
+        min_inst_count = min(len(train_src_word_insts),
+                             len(train_tgt_word_insts))
         train_src_word_insts = train_src_word_insts[:min_inst_count]
         train_tgt_word_insts = train_tgt_word_insts[:min_inst_count]
 
-    #- Remove empty instances
+    # - Remove empty instances
     train_src_word_insts, train_tgt_word_insts = list(zip(*[
-        (s, t) for s, t in zip(train_src_word_insts, train_tgt_word_insts) if s and t]))
+        (s, t) for s, t in zip(train_src_word_insts, train_tgt_word_insts)
+        if s and t]))
 
     # Validation set
     valid_src_word_insts = read_instances_from_file(
@@ -159,6 +167,7 @@ def main():
     print('[Info] Dumping the processed data to pickle file', opt.save_data)
     torch.save(data, opt.save_data)
     print('[Info] Finish.')
+
 
 if __name__ == '__main__':
     main()
