@@ -77,15 +77,6 @@ def train_epoch(model,
             desc='  - (Training)   ',
             leave=False):
 
-        # # Added by Zachary to Debug the Sudden GPU VOLATILE DROP
-        # count add
-        # count += 1
-        # print("batch_count: {}".format(count))
-        # print("execute torch.cuda.empty_cache()")
-        # torch.cuda.empty_cache()
-
-        # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-
         # prepare data
         src_seq, src_pos, tgt_seq, tgt_pos = map(lambda x: x.to(device), batch)
         gold = tgt_seq[:, 1:]
