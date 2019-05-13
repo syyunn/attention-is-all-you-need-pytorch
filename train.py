@@ -55,7 +55,8 @@ def cal_loss(pred, gold, smoothing):
     return loss
 
 
-def train_epoch(model,
+def train_epoch(log_train_file,
+                model,
                 training_data,
                 optimizer,
                 device,
@@ -92,7 +93,13 @@ def train_epoch(model,
         loss, n_correct = cal_performance(pred,
                                           gold,
                                           smoothing=smoothing)
-        print("loss: {}".format(loss))
+        log = "loss: {}".format(loss)
+        print(log)
+
+        with open(log_train_file, 'a') as log_tf:
+            print('logging!')
+            log_tf.write(log + '\n')
+
         loss.backward()
 
         # update parameters
@@ -178,20 +185,29 @@ def train(model,
             log_vf.write('epoch,loss,ppl,accuracy\n')
 
     valid_accus = []
+
     for epoch_i in range(opt.epoch):
         print('[ Epoch', epoch_i, ']')
 
         start = time.time()
         train_loss, train_accu = train_epoch(
+            log_train_file,
             model,
             training_data,
             optimizer,
             device,
             smoothing=opt.label_smoothing)
-        print('  - (Training)   ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '
+
+        log = '  - (Training)   ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, ' \
               'elapse: {elapse:3.3f} min'.format(
                   ppl=math.exp(min(train_loss, 100)), accu=100*train_accu,
-                  elapse=(time.time()-start)/60))
+                  elapse=(time.time()-start)/60)
+
+        print(log)
+
+        with open(log_train_file, 'a') as log_tf:
+            print('logging!')
+            log_tf.write(log + '\n')
 
         start = time.time()
         valid_loss, valid_accu = eval_epoch(model, validation_data, device)
