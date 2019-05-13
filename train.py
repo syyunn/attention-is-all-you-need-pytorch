@@ -55,7 +55,11 @@ def cal_loss(pred, gold, smoothing):
     return loss
 
 
-def train_epoch(model, training_data, optimizer, device, smoothing):
+def train_epoch(model,
+                training_data,
+                optimizer,
+                device,
+                smoothing):
     """ Epoch operation in training phase """
 
     model.train()
@@ -64,9 +68,23 @@ def train_epoch(model, training_data, optimizer, device, smoothing):
     n_word_total = 0
     n_word_correct = 0
 
+    total_batch_num = len(training_data)
+    print("total_batch_num: {}".format(total_batch_num))
+    # count = 0
     for batch in tqdm(
-            training_data, mininterval=2,
-            desc='  - (Training)   ', leave=False):
+            training_data,
+            mininterval=2,
+            desc='  - (Training)   ',
+            leave=False):
+
+        # # Added by Zachary to Debug the Sudden GPU VOLATILE DROP
+        # count add
+        # count += 1
+        # print("batch_count: {}".format(count))
+        # print("execute torch.cuda.empty_cache()")
+        # torch.cuda.empty_cache()
+
+        # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
         # prepare data
         src_seq, src_pos, tgt_seq, tgt_pos = map(lambda x: x.to(device), batch)
@@ -74,10 +92,16 @@ def train_epoch(model, training_data, optimizer, device, smoothing):
 
         # forward
         optimizer.zero_grad()
-        pred = model(src_seq, src_pos, tgt_seq, tgt_pos)
+        pred = model(src_seq,
+                     src_pos,
+                     tgt_seq,
+                     tgt_pos)
 
         # backward
-        loss, n_correct = cal_performance(pred, gold, smoothing=smoothing)
+        loss, n_correct = cal_performance(pred,
+                                          gold,
+                                          smoothing=smoothing)
+        print("loss: {}".format(loss))
         loss.backward()
 
         # update parameters
@@ -107,16 +131,23 @@ def eval_epoch(model, validation_data, device):
 
     with torch.no_grad():
         for batch in tqdm(
-                validation_data, mininterval=2,
-                desc='  - (Validation) ', leave=False):
+                validation_data,
+                mininterval=2,
+                desc='  - (Validation) ',
+                leave=False):
 
             # prepare data
             src_seq, src_pos, tgt_seq, tgt_pos = map(lambda x: x.to(device), batch)
             gold = tgt_seq[:, 1:]
 
             # forward
-            pred = model(src_seq, src_pos, tgt_seq, tgt_pos)
-            loss, n_correct = cal_performance(pred, gold, smoothing=False)
+            pred = model(src_seq,
+                         src_pos,
+                         tgt_seq,
+                         tgt_pos)
+            loss, n_correct = cal_performance(pred,
+                                              gold,
+                                              smoothing=False)
 
             # note keeping
             total_loss += loss.item()
@@ -131,7 +162,12 @@ def eval_epoch(model, validation_data, device):
     return loss_per_word, accuracy
 
 
-def train(model, training_data, validation_data, optimizer, device, opt):
+def train(model,
+          training_data,
+          validation_data,
+          optimizer,
+          device,
+          opt):
     """ Start training """
 
     log_train_file = None
@@ -141,10 +177,12 @@ def train(model, training_data, validation_data, optimizer, device, opt):
         log_train_file = opt.log + '.train.log'
         log_valid_file = opt.log + '.valid.log'
 
-        print('[Info] Training performance will be written to file: {} and {}'.format(
-            log_train_file, log_valid_file))
+        print('[Info] Training performance will be written to file: {} and '
+              '{}'.format(log_train_file,
+                          log_valid_file))
 
-        with open(log_train_file, 'w') as log_tf, open(log_valid_file, 'w') as log_vf:
+        with open(log_train_file, 'w') as log_tf, open(log_valid_file, 'w') \
+                as log_vf:
             log_tf.write('epoch,loss,ppl,accuracy\n')
             log_vf.write('epoch,loss,ppl,accuracy\n')
 
@@ -154,16 +192,20 @@ def train(model, training_data, validation_data, optimizer, device, opt):
 
         start = time.time()
         train_loss, train_accu = train_epoch(
-            model, training_data, optimizer, device, smoothing=opt.label_smoothing)
-        print('  - (Training)   ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '\
+            model,
+            training_data,
+            optimizer,
+            device,
+            smoothing=opt.label_smoothing)
+        print('  - (Training)   ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '
               'elapse: {elapse:3.3f} min'.format(
                   ppl=math.exp(min(train_loss, 100)), accu=100*train_accu,
                   elapse=(time.time()-start)/60))
 
         start = time.time()
         valid_loss, valid_accu = eval_epoch(model, validation_data, device)
-        print('  - (Validation) ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '\
-                'elapse: {elapse:3.3f} min'.format(
+        print('  - (Validation) ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '
+              'elapse: {elapse:3.3f} min'.format(
                     ppl=math.exp(min(valid_loss, 100)), accu=100*valid_accu,
                     elapse=(time.time()-start)/60))
 
@@ -207,7 +249,7 @@ def main():
                         required=True)
 
     parser.add_argument('-epoch', type=int, default=10)
-    parser.add_argument('-batch_size', type=int, default=16)
+    parser.add_argument('-batch_size', type=int, default=64)
 
     # parser.add_argument('-d_word_vec', type=int, default=512)
     parser.add_argument('-d_model', type=int, default=512)
@@ -250,8 +292,10 @@ def main():
 
     # ========= Preparing Model ========= #
     if opt.embs_share_weight:
-        assert training_data.dataset.src_word2idx == training_data.dataset.tgt_word2idx, \
-            'The src/tgt word2idx table are different but asked to share word embedding.'
+        assert training_data.dataset.src_word2idx == \
+               training_data.dataset.tgt_word2idx, \
+               'The src/tgt word2idx table are different but asked ' \
+               'to share word embedding.'
 
     print(opt)
 
@@ -273,11 +317,18 @@ def main():
 
     optimizer = ScheduledOptim(
         optim.Adam(
-            filter(lambda x: x.requires_grad, transformer.parameters()),
+            filter(lambda x: x.requires_grad,
+                   transformer.parameters()),
             betas=(0.9, 0.98), eps=1e-09),
-        opt.d_model, opt.n_warmup_steps)
+        opt.d_model,
+        opt.n_warmup_steps)
 
-    train(transformer, training_data, validation_data, optimizer, device ,opt)
+    train(transformer,
+          training_data,
+          validation_data,
+          optimizer,
+          device,
+          opt)
 
 
 def prepare_dataloaders(data, opt):

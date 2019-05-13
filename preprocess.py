@@ -119,9 +119,10 @@ def main():
         valid_src_word_insts = valid_src_word_insts[:min_inst_count]
         valid_tgt_word_insts = valid_tgt_word_insts[:min_inst_count]
 
-    #- Remove empty instances
+    # - Remove empty instances
     valid_src_word_insts, valid_tgt_word_insts = list(zip(*[
-        (s, t) for s, t in zip(valid_src_word_insts, valid_tgt_word_insts) if s and t]))
+        (s, t) for s, t in zip(valid_src_word_insts, valid_tgt_word_insts)
+        if s and t]))
 
     # Build vocabulary
     if opt.vocab:
@@ -135,22 +136,29 @@ def main():
         if opt.share_vocab:
             print('[Info] Build shared vocabulary for source and target.')
             word2idx = build_vocab_idx(
-                train_src_word_insts + train_tgt_word_insts, opt.min_word_count)
+                train_src_word_insts + train_tgt_word_insts,
+                opt.min_word_count)
             src_word2idx = tgt_word2idx = word2idx
         else:
             print('[Info] Build vocabulary for source.')
-            src_word2idx = build_vocab_idx(train_src_word_insts, opt.min_word_count)
+            src_word2idx = build_vocab_idx(train_src_word_insts,
+                                           opt.min_word_count)
             print('[Info] Build vocabulary for target.')
-            tgt_word2idx = build_vocab_idx(train_tgt_word_insts, opt.min_word_count)
+            tgt_word2idx = build_vocab_idx(train_tgt_word_insts,
+                                           opt.min_word_count)
 
     # word to index
     print('[Info] Convert source word instances into sequences of word index.')
-    train_src_insts = convert_instance_to_idx_seq(train_src_word_insts, src_word2idx)
-    valid_src_insts = convert_instance_to_idx_seq(valid_src_word_insts, src_word2idx)
+    train_src_insts = convert_instance_to_idx_seq(train_src_word_insts,
+                                                  src_word2idx)
+    valid_src_insts = convert_instance_to_idx_seq(valid_src_word_insts,
+                                                  src_word2idx)
 
     print('[Info] Convert target word instances into sequences of word index.')
-    train_tgt_insts = convert_instance_to_idx_seq(train_tgt_word_insts, tgt_word2idx)
-    valid_tgt_insts = convert_instance_to_idx_seq(valid_tgt_word_insts, tgt_word2idx)
+    train_tgt_insts = convert_instance_to_idx_seq(train_tgt_word_insts,
+                                                  tgt_word2idx)
+    valid_tgt_insts = convert_instance_to_idx_seq(valid_tgt_word_insts,
+                                                  tgt_word2idx)
 
     data = {
         'settings': opt,
@@ -164,7 +172,8 @@ def main():
             'src': valid_src_insts,
             'tgt': valid_tgt_insts}}
 
-    print('[Info] Dumping the processed data to pickle file', opt.save_data)
+    print('[Info] Dumping the processed data to pickle file',
+          opt.save_data)
     torch.save(data, opt.save_data)
     print('[Info] Finish.')
 
