@@ -181,8 +181,8 @@ def train(model,
     log_valid_file = None
 
     if opt.log:
-        log_train_file = opt.log + '.train.log'
-        log_valid_file = opt.log + '.valid.log'
+        log_train_file = opt.log + 'train.log'
+        log_valid_file = opt.log + 'valid.log'
 
         print('[Info] Training performance will be written to file: {} and '
               '{}'.format(log_train_file,
@@ -215,7 +215,7 @@ def train(model,
         print(log)
 
         with open(log_train_file, 'a') as log_tf:
-            print('logging!')
+            # print('logging!')
             log_tf.write(log + '\n')
 
         start = time.time()
@@ -223,10 +223,17 @@ def train(model,
                                             model,
                                             validation_data,
                                             device)
-        print('  - (Validation) ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '
+        log = '  - (Validation) ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, ' \
               'elapse: {elapse:3.3f} min'.format(
                     ppl=math.exp(min(valid_loss, 100)), accu=100*valid_accu,
-                    elapse=(time.time()-start)/60))
+                    elapse=(time.time()-start)/60)
+        print(log)
+
+        with open(log_valid_file, 'a') as log_vf:
+            # print('logging!')
+            log_vf.write(log + '\n')
+
+
 
         valid_accus += [valid_accu]
 
@@ -267,7 +274,7 @@ def main():
                         "gigaword.low.pt",
                         required=True)
 
-    parser.add_argument('-epoch', type=int, default=10)
+    parser.add_argument('-epoch', type=int, default=7)
     parser.add_argument('-batch_size', type=int, default=64)
 
     # parser.add_argument('-d_word_vec', type=int, default=512)
