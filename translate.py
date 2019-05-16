@@ -7,7 +7,49 @@ from tqdm import tqdm
 
 from dataset import paired_collate_fn, TranslationDataset
 from transformer.Translator import Translator
+import transformer.Constants as Constants
+import torch.nn.functional as F
+
+
 from preprocess import read_instances_from_file, convert_instance_to_idx_seq
+
+
+def cal_performance(pred, gold, smoothing=False):
+    """ Apply label smoothing if needed """
+
+    loss = cal_loss(pred, gold, smoothing)
+
+    pred = pred.max(1)[1]
+    gold = gold.contiguous().view(-1)
+    non_pad_mask = gold.ne(Constants.PAD)
+    n_correct = pred.eq(gold)
+    n_correct = n_correct.masked_select(non_pad_mask).sum().item()
+
+    return loss, n_correct
+
+
+def cal_loss(pred, gold, smoothing):
+    """ Calculate cross entropy loss, apply label smoothing if needed. """
+
+    gold = gold.contiguous().view(-1)
+
+    if smoothing:
+        eps = 0.1
+        n_class = pred.size(1)
+
+        one_hot = torch.zeros_like(pred).scatter(1, gold.view(-1, 1), 1)
+        one_hot = one_hot * (1 - eps) + (1 - one_hot) * eps / (n_class - 1)
+        log_prb = F.log_softmax(pred, dim=1)
+
+        non_pad_mask = gold.ne(Constants.PAD)
+        loss = -(one_hot * log_prb).sum(dim=1)
+        loss = loss.masked_select(non_pad_mask).sum()  # average later
+    else:
+        loss = F.cross_entropy(pred, gold,
+                               ignore_index=Constants.PAD,
+                               reduction='sum')
+
+    return loss
 
 
 def main():
@@ -26,6 +68,9 @@ def main():
     parser.add_argument('-vocab', required=True,
                         help='Source sequence to decode '
                              '(one line per sequence)')
+    parser.add_argument('-log', default='translate_log.txt',
+                        help="""Path to log the translation(test_inference) 
+                        loss""")
     parser.add_argument('-output', default='pred.txt',
                         help="""Path to output the predictions (each line will
                         be the decoded sequence""")
@@ -80,6 +125,17 @@ def main():
             src_seqs = batch[0]
             tgt_seqs = batch[2]
             count = 0
+
+            gold = tgt_seqs[:, 1:]
+            trs_loss, n_correct = cal_performance(all_hyp,
+                                                  gold,
+                                                  smoothing=False)
+            print(trs_loss)
+            trs_log = "transformer_loss: {} |".format(trs_loss)
+
+            with open(opt.log, 'a') as log_tf:
+                # print('logging!')
+                log_tf.write(trs_log + '\n')
 
             for pred_seqs in all_hyp:
                 src_seq = src_seqs[count]

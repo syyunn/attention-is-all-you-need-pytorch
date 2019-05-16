@@ -97,7 +97,7 @@ def train_epoch(log_train_file,
         print(log)
 
         with open(log_train_file, 'a') as log_tf:
-            print('logging!')
+            # print('logging!')
             log_tf.write(log + '\n')
 
         loss.backward()
@@ -118,7 +118,10 @@ def train_epoch(log_train_file,
     return loss_per_word, accuracy
 
 
-def eval_epoch(model, validation_data, device):
+def eval_epoch(log_valid_file,
+               model,
+               validation_data,
+               device):
     """ Epoch operation in evaluation phase """
 
     model.eval()
@@ -146,6 +149,12 @@ def eval_epoch(model, validation_data, device):
             loss, n_correct = cal_performance(pred,
                                               gold,
                                               smoothing=False)
+            log = "loss: {}".format(loss)
+            print(log)
+
+            with open(log_valid_file, 'a') as log_tf:
+                # print('logging!')
+                log_tf.write(log + '\n')
 
             # note keeping
             total_loss += loss.item()
@@ -210,7 +219,10 @@ def train(model,
             log_tf.write(log + '\n')
 
         start = time.time()
-        valid_loss, valid_accu = eval_epoch(model, validation_data, device)
+        valid_loss, valid_accu = eval_epoch(log_valid_file,
+                                            model,
+                                            validation_data,
+                                            device)
         print('  - (Validation) ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '
               'elapse: {elapse:3.3f} min'.format(
                     ppl=math.exp(min(valid_loss, 100)), accu=100*valid_accu,
