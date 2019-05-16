@@ -5,7 +5,7 @@ import torch.utils.data
 import argparse
 from tqdm import tqdm
 
-from dataset import collate_fn, TranslationDataset
+from dataset import paired_collate_fn, TranslationDataset
 from transformer.Translator import Translator
 from preprocess import read_instances_from_file, convert_instance_to_idx_seq
 
@@ -19,6 +19,9 @@ def main():
                         help='Path to model .pt file')
     parser.add_argument('-src', required=True,
                         help='Source sequence to decode '
+                             '(one line per sequence)')
+    parser.add_argument('-tgt', required=True,
+                        help='Target sequence to decode '
                              '(one line per sequence)')
     parser.add_argument('-vocab', required=True,
                         help='Source sequence to decode '
@@ -45,17 +48,24 @@ def main():
         opt.src,
         preprocess_settings.max_word_seq_len,
         preprocess_settings.keep_case)
+    test_tgt_word_insts = read_instances_from_file(
+        opt.tgt,
+        preprocess_settings.max_word_seq_len,
+        preprocess_settings.keep_case)
     test_src_insts = convert_instance_to_idx_seq(
         test_src_word_insts, preprocess_data['dict']['src'])
+    test_tgt_insts = convert_instance_to_idx_seq(
+        test_tgt_word_insts, preprocess_data['dict']['tgt'])
 
     test_loader = torch.utils.data.DataLoader(
         TranslationDataset(
             src_word2idx=preprocess_data['dict']['src'],
             tgt_word2idx=preprocess_data['dict']['tgt'],
-            src_insts=test_src_insts),
+            src_insts=test_src_insts,
+            tgt_insts=test_tgt_insts),
         num_workers=2,
         batch_size=opt.batch_size,
-        collate_fn=collate_fn)
+        collate_fn=paired_collate_fn)
 
     translator = Translator(opt)
 
@@ -64,21 +74,30 @@ def main():
                           mininterval=2,
                           desc='  - (Test)',
                           leave=False):
-            all_hyp, all_scores = translator.translate_batch(*batch)
+            # all_hyp, all_scores = translator.translate_batch(*batch)
+            all_hyp, all_scores = translator.translate_batch(batch[0],
+                                                             batch[1])
             src_seqs = batch[0]
+            tgt_seqs = batch[2]
             count = 0
-            for idx_seqs in all_hyp:
+
+            for pred_seqs in all_hyp:
                 src_seq = src_seqs[count]
-                for tgt_idx_seq in idx_seqs:
+                tgt_seq = tgt_seqs[count]
+                for pred_seq in pred_seqs:
                     src_line = ' '.join([test_loader.dataset.src_idx2word[idx]
                                          for idx in src_seq.data.cpu().numpy()])
-#                    print(src_line)
+                    tgt_line = ' '.join([test_loader.dataset.tgt_idx2word[idx]
+                                         for idx in tgt_seq.data.cpu().numpy()])
                     pred_line = ' '.join([test_loader.dataset.tgt_idx2word[idx]
-                                          for idx in tgt_idx_seq])
-#                    print(pred_line)
-                    f.write("[src] " + src_line + '\n')
-                    f.write("[tgt] " + pred_line + '\n')
+                                          for idx in pred_seq])
+                    f.write("\n ----------------------------------------------------------------------------------------------------------------------------------------------  \n")
+                    f.write("\n [src]  " + src_line + '\n')
+                    f.write("\n [tgt]  " + tgt_line + '\n')
+                    f.write("\n [pred] " + pred_line + '\n')
+
                     count += 1
+
     print('[Info] Finished.')
 
 

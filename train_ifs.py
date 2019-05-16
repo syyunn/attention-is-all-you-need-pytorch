@@ -5,8 +5,10 @@ This script handling the training process.
 import argparse
 import math
 import time
+import random
 
 from tqdm import tqdm
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -15,6 +17,8 @@ import transformer.Constants as Constants
 from dataset import TranslationDataset, paired_collate_fn
 from transformer.Models import Transformer
 from transformer.Optim import ScheduledOptim
+
+import load
 
 
 def cal_performance(pred, gold, smoothing=False):
@@ -55,7 +59,8 @@ def cal_loss(pred, gold, smoothing):
     return loss
 
 
-def train_epoch(log_train_file,
+def train_epoch(infersent_model,
+                log_train_file,
                 model,
                 training_data,
                 optimizer,
@@ -82,6 +87,40 @@ def train_epoch(log_train_file,
         src_seq, src_pos, tgt_seq, tgt_pos = map(lambda x: x.to(device), batch)
         gold = tgt_seq[:, 1:]
 
+        batch_src_to_feed_infersent = []
+        for seq in src_seq:
+            src_line = ' '.join([training_data.dataset.src_idx2word[idx]
+                                 for idx in seq.data.cpu().numpy()])
+            src_line_clear = src_line[3:].split('</s>')[0]
+            batch_src_to_feed_infersent.append(src_line_clear)
+
+        batch_tgt_to_feed_infersent = []
+        for seq in tgt_seq:
+            tgt_line = ' '.join([training_data.dataset.tgt_idx2word[idx]
+                                 for idx in seq.data.cpu().numpy()])
+            tgt_line_clear = tgt_line[3:].split('</s>')[0]
+            batch_tgt_to_feed_infersent.append(tgt_line_clear)
+
+        batch_src_infersent_enc = infersent_model.encode(
+            batch_src_to_feed_infersent)
+        batch_tgt_infersent_enc = infersent_model.encode(
+            batch_tgt_to_feed_infersent)
+
+        sumrz_devit = batch_src_infersent_enc - batch_tgt_infersent_enc
+
+        general_permitance = 1.067753
+        dists = np.linalg.norm(sumrz_devit, axis=1)
+
+        dists_error = dists - general_permitance
+
+        positivedx= np.where(dists_error > 0)[0]
+
+        ifs_loss_multiplier = 20000
+
+        ifs_loss = np.mean(dists_error[positivedx]) * ifs_loss_multiplier
+        ifs_log = "infersent_loss: {} |".format(ifs_loss)
+        print(ifs_log)
+
         # forward
         optimizer.zero_grad()
         pred = model(src_seq,
@@ -90,23 +129,28 @@ def train_epoch(log_train_file,
                      tgt_pos)
 
         # backward
-        loss, n_correct = cal_performance(pred,
-                                          gold,
-                                          smoothing=smoothing)
-        log = "loss: {}".format(loss)
-        print(log)
+        trs_loss, n_correct = cal_performance(pred,
+                                              gold,
+                                              smoothing=smoothing)
+
+        trs_log = "transformer_loss: {} |".format(trs_loss)
+        print(trs_log)
+
+        final_loss = trs_loss + ifs_loss
+        final_log = "total_loss : {}".format(final_loss)
+        print(final_log)
 
         with open(log_train_file, 'a') as log_tf:
-            print('logging!')
-            log_tf.write(log + '\n')
-
-        loss.backward()
+            # print('logging!')
+            log_tf.write(trs_log + ifs_log + final_log + '\n')
+        # print("data", final_loss.data.cpu())
+        final_loss.backward()
 
         # update parameters
         optimizer.step_and_update_lr()
 
         # note keeping
-        total_loss += loss.item()
+        total_loss += final_loss.item()
 
         non_pad_mask = gold.ne(Constants.PAD)
         n_word = non_pad_mask.sum().item()
@@ -135,7 +179,8 @@ def eval_epoch(model, validation_data, device):
                 leave=False):
 
             # prepare data
-            src_seq, src_pos, tgt_seq, tgt_pos = map(lambda x: x.to(device), batch)
+            src_seq, src_pos, tgt_seq, tgt_pos = map(lambda x: x.to(device),
+                                                     batch)
             gold = tgt_seq[:, 1:]
 
             # forward
@@ -146,6 +191,40 @@ def eval_epoch(model, validation_data, device):
             loss, n_correct = cal_performance(pred,
                                               gold,
                                               smoothing=False)
+            batch_size_recall = src_seq.shape[0]
+
+            # for print check
+            batch_src_to_print = []
+            for seq in src_seq:
+                src_line = ' '.join([validation_data.dataset.src_idx2word[idx]
+                                     for idx in seq.data.cpu().numpy()])
+                src_line_clear = src_line[3:].split('</s>')[0]
+                batch_src_to_print.append(src_line_clear)
+
+            batch_tgt_to_print = []
+            for seq in tgt_seq:
+                tgt_line = ' '.join([validation_data.dataset.tgt_idx2word[idx]
+                                     for idx in seq.data.cpu().numpy()])
+                tgt_line_clear = tgt_line[3:].split('</s>')[0]
+                batch_tgt_to_print.append(tgt_line_clear)
+
+            pred = pred.max(1)[1].view((batch_size_recall,
+                                        int(pred.shape[0]/batch_size_recall)))
+            batch_pred_to_print = []
+            for seq in pred:
+                pred_line = ' '.join([validation_data.dataset.tgt_idx2word[idx]
+                                     for idx in seq.data.cpu().numpy()])
+                pred_line_clear = pred_line[3:].split('</s>')[0]
+                batch_pred_to_print.append(pred_line_clear)
+
+            random_range = [i for i in range(batch_size_recall)]
+            sample_n = 5
+            rd_sample_idxs = random.sample(random_range, 5)
+
+            for idx in rd_sample_idxs:
+                print("[valid_src]    ", batch_src_to_print[idx])
+                print("[valid_tgt]    ", batch_tgt_to_print[idx])
+                print("[valid_pred]   ", batch_pred_to_print[idx])
 
             # note keeping
             total_loss += loss.item()
@@ -160,7 +239,8 @@ def eval_epoch(model, validation_data, device):
     return loss_per_word, accuracy
 
 
-def train(model,
+def train(infersent_model,
+          model,
           training_data,
           validation_data,
           optimizer,
@@ -189,8 +269,12 @@ def train(model,
     for epoch_i in range(opt.epoch):
         print('[ Epoch', epoch_i, ']')
 
+        # for debug
+        # eval_epoch(model, validation_data, device)
+
         start = time.time()
         train_loss, train_accu = train_epoch(
+            infersent_model,
             log_train_file,
             model,
             training_data,
@@ -211,6 +295,7 @@ def train(model,
 
         start = time.time()
         valid_loss, valid_accu = eval_epoch(model, validation_data, device)
+        print('[ Epoch', epoch_i, '] VALID')
         print('  - (Validation) ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '
               'elapse: {elapse:3.3f} min'.format(
                     ppl=math.exp(min(valid_loss, 100)), accu=100*valid_accu,
@@ -322,6 +407,8 @@ def main():
         n_head=opt.n_head,
         dropout=opt.dropout).to(device)
 
+    infersent = load.infersent()
+
     optimizer = ScheduledOptim(
         optim.Adam(
             filter(lambda x: x.requires_grad,
@@ -330,7 +417,8 @@ def main():
         opt.d_model,
         opt.n_warmup_steps)
 
-    train(transformer,
+    train(infersent,
+          transformer,
           training_data,
           validation_data,
           optimizer,

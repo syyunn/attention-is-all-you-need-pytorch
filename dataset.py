@@ -92,5 +92,7 @@ class TranslationDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         if self._tgt_insts:
+            # print("_tgt_insts detected.")
+            # print(self._src_insts[idx], self._tgt_insts[idx])
             return self._src_insts[idx], self._tgt_insts[idx]
         return self._src_insts[idx]
