@@ -95,6 +95,11 @@ def train_epoch(infersent_model,
             src_line_clear = src_line[3:].split('</s>')[0]
             batch_src_to_feed_infersent.append(src_line_clear)
 
+        batch_src_infersent_enc = infersent_model.encode(
+            batch_src_to_feed_infersent)
+
+        batch_size = batch_src_infersent_enc.shape[0]
+
         # batch_tgt_to_feed_infersent = []
         # for seq in tgt_seq:
         #     tgt_line = ' '.join([training_data.dataset.tgt_idx2word[idx]
@@ -112,7 +117,7 @@ def train_epoch(infersent_model,
                      tgt_seq,
                      tgt_pos)
 
-        pred_max = pred.max(1)[1].view(64, -1)
+        pred_max = pred.max(1)[1].view(batch_size, -1)
 
         def _translate(torch_tokens):
             translation = ' '.join([training_data.dataset.tgt_idx2word[idx]
@@ -126,8 +131,6 @@ def train_epoch(infersent_model,
             translated_pred = _translate(sent_token)
             batch_pred_to_feed_infersent.append(translated_pred)
 
-        batch_src_infersent_enc = infersent_model.encode(
-            batch_src_to_feed_infersent)
         # batch_tgt_infersent_enc = infersent_model.encode(
         #     batch_tgt_to_feed_infersent)
         batch_pred_infersent_enc = infersent_model.encode(
