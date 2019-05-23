@@ -6,7 +6,7 @@ __author__ = "Yu-Hsiang Huang"
 
 
 class EncoderLayer(nn.Module):
-    ''' Compose with two layers '''
+    """ Compose with two layers """
 
     def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
         super(EncoderLayer, self).__init__()

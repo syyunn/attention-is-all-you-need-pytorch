@@ -2,12 +2,11 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-__author__ = "Yu-Hsiang Huang"
 
 class ScaledDotProductAttention(nn.Module):
-    ''' Scaled Dot-Product Attention '''
-
+    """ Scaled Dot-Product Attention """
     def __init__(self, temperature, attn_dropout=0.1):
+        # temperature is scaling factor
         super().__init__()
         self.temperature = temperature
         self.dropout = nn.Dropout(attn_dropout)
@@ -16,6 +15,7 @@ class ScaledDotProductAttention(nn.Module):
     def forward(self, q, k, v, mask=None):
 
         attn = torch.bmm(q, k.transpose(1, 2))
+        # torch.bmm Performs a batch matrix-matrix product of matrices stored in batch1 and batch2.
         attn = attn / self.temperature
 
         if mask is not None:

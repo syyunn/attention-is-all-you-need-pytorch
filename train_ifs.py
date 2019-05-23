@@ -257,10 +257,10 @@ def eval_epoch(infersent_model,
             sample_n = 5
             rd_sample_idxs = random.sample(random_range, 5)
 
-            for idx in rd_sample_idxs:
-                print("[valid_src]    ", batch_src_to_print[idx])
-                print("[valid_tgt]    ", batch_tgt_to_print[idx])
-                print("[valid_pred]   ", batch_pred_to_print[idx])
+            # for idx in rd_sample_idxs:
+            #     print("[valid_src]    ", batch_src_to_print[idx])
+            #     print("[valid_tgt]    ", batch_tgt_to_print[idx])
+            #     print("[valid_pred]   ", batch_pred_to_print[idx])
 
             # note keeping
             total_loss += trs_loss.item()
@@ -288,25 +288,17 @@ def train(infersent_model,
     log_valid_file = None
 
     if opt.log:
-        log_train_file = opt.log + '.train.log'
-        log_valid_file = opt.log + '.valid.log'
+        log_train_file = opt.log + 'train.log'
+        log_valid_file = opt.log + 'valid.log'
 
         print('[Info] Training performance will be written to file: {} and '
               '{}'.format(log_train_file,
                           log_valid_file))
 
-        with open(log_train_file, 'w') as log_tf, open(log_valid_file, 'w') \
-                as log_vf:
-            log_tf.write('epoch,loss,ppl,accuracy\n')
-            log_vf.write('epoch,loss,ppl,accuracy\n')
-
     valid_accus = []
 
     for epoch_i in range(opt.epoch):
         print('[ Epoch', epoch_i, ']')
-
-        # for debug
-        # eval_epoch(model, validation_data, device)
 
         start = time.time()
         train_loss, train_accu = train_epoch(
@@ -335,11 +327,14 @@ def train(infersent_model,
                                             model,
                                             validation_data,
                                             device)
-        print('[ Epoch', epoch_i, '] VALID')
-        print('  - (Validation) ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, '
-              'elapse: {elapse:3.3f} min'.format(
+        log = '[ Epoch, {}, ] VALID'.format(epoch_i)
+        log += '  - (Validation) ppl: {ppl: 8.5f}, accuracy: {accu:3.3f} %, ' \
+               'elapse: {elapse:3.3f} min'.format(
                     ppl=math.exp(min(valid_loss, 100)), accu=100*valid_accu,
-                    elapse=(time.time()-start)/60))
+                    elapse=(time.time()-start)/60)
+
+        with open(log_valid_file, 'a') as log_vf:
+            log_vf.write(log + '\n')
 
         valid_accus += [valid_accu]
 
@@ -358,15 +353,6 @@ def train(infersent_model,
                 if valid_accu >= max(valid_accus):
                     torch.save(checkpoint, model_name)
                     print('    - [Info] The checkpoint file has been updated.')
-
-        if log_train_file and log_valid_file:
-            with open(log_train_file, 'a') as log_tf, open(log_valid_file, 'a') as log_vf:
-                log_tf.write('{epoch},{loss: 8.5f},{ppl: 8.5f},{accu:3.3f}\n'.format(
-                    epoch=epoch_i, loss=train_loss,
-                    ppl=math.exp(min(train_loss, 100)), accu=100*train_accu))
-                log_vf.write('{epoch},{loss: 8.5f},{ppl: 8.5f},{accu:3.3f}\n'.format(
-                    epoch=epoch_i, loss=valid_loss,
-                    ppl=math.exp(min(valid_loss, 100)), accu=100*valid_accu))
 
 
 def main():

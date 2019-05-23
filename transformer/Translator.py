@@ -89,8 +89,7 @@ class Translator(object):
             active_inst_idx_to_position_map = \
                 get_inst_idx_to_tensor_position_map(active_inst_idx_list)
 
-            return active_src_seq, active_src_enc, \
-                   active_inst_idx_to_position_map
+            return active_src_seq, active_src_enc, active_inst_idx_to_position_map
 
         def beam_decode_step(
                 inst_dec_beams,
@@ -115,17 +114,43 @@ class Translator(object):
                 return dec_partial_pos
 
             def predict_word(dec_seq, dec_pos, src_seq, enc_output, n_active_inst, n_bm):
-                dec_output, *_ = self.model.decoder(dec_seq, dec_pos, src_seq, enc_output)
-                dec_output = dec_output[:, -1, :]  # Pick the last step: (bh * bm) * d_h
-                word_prob = F.log_softmax(self.model.tgt_word_prj(dec_output), dim=1)
+                # # Added by Zachary
+                # if self.model.tgt_emb_prj_weight_sharing:
+                #     # Share the weight matrix between target word embedding &
+                #     # the final logit dense layer
+                #     self.tgt_word_prj.weight = self.decoder.tgt_word_emb.weight
+                #     self.x_logit_scale = (self.model.d_model ** -0.5)
+                # else:
+                #     self.x_logit_scale = 1.
+
+                dec_output, *_ = self.model.decoder(dec_seq,
+                                                    dec_pos,
+                                                    src_seq,
+                                                    enc_output)
+
+                # def get_seq_logit(decode_output):
+                #     sequence_logit = self.model.tgt_word_prj(
+                #         dec_output) * self.x_logit_scale
+                #     return sequence_logit.view(-1, sequence_logit.size(2))
+                # seq_logit = get_seq_logit(dec_output)
+
+                dec_output = dec_output[:, -1, :]
+
+                # Pick the last step: (bh * bm) * d_h
+
+                word_prob = F.log_softmax(self.model.tgt_word_prj(dec_output),
+                                          dim=1)
                 word_prob = word_prob.view(n_active_inst, n_bm, -1)
 
                 return word_prob
 
-            def collect_active_inst_idx_list(inst_beams, word_prob, inst_idx_to_position_map):
+            def collect_active_inst_idx_list(inst_beams,
+                                             word_prob,
+                                             inst_idx_to_position_map):
                 active_inst_idx_list = []
                 for inst_idx, inst_position in inst_idx_to_position_map.items():
-                    is_inst_complete = inst_beams[inst_idx].advance(word_prob[inst_position])
+                    is_inst_complete = inst_beams[inst_idx].advance(
+                        word_prob[inst_position])
                     if not is_inst_complete:
                         active_inst_idx_list += [inst_idx]
 
@@ -134,14 +159,21 @@ class Translator(object):
             n_active_inst = len(inst_idx_to_position_map)
 
             dec_seq = prepare_beam_dec_seq(inst_dec_beams, len_dec_seq)
-            dec_pos = prepare_beam_dec_pos(len_dec_seq, n_active_inst, n_bm)
-            word_prob = predict_word(dec_seq, dec_pos, src_seq, enc_output, n_active_inst, n_bm)
+            dec_pos = prepare_beam_dec_pos(len_dec_seq,
+                                           n_active_inst,
+                                           n_bm)
+            word_prob = predict_word(dec_seq,
+                                     dec_pos,
+                                     src_seq,
+                                     enc_output,
+                                     n_active_inst,
+                                     n_bm)
 
             # Update the beam with predicted word prob information and collect incomplete instances
             active_inst_idx_list = collect_active_inst_idx_list(
                 inst_dec_beams, word_prob, inst_idx_to_position_map)
 
-            return active_inst_idx_list
+            return active_inst_idx_list # , seq_logit
 
         def collect_hypothesis_and_scores(inst_dec_beams, n_best):
             all_hyp, all_scores = [], []
@@ -165,24 +197,35 @@ class Translator(object):
             src_enc = src_enc.repeat(1, n_bm, 1).view(n_inst * n_bm, len_s, d_h)
 
             #-- Prepare beams
-            inst_dec_beams = [Beam(n_bm, device=self.device) for _ in range(n_inst)]
+            inst_dec_beams = [Beam(n_bm, device=self.device)
+                              for _ in range(n_inst)]
 
-            #-- Bookkeeping for active or not
+            # -- Bookkeeping for active or not
             active_inst_idx_list = list(range(n_inst))
             inst_idx_to_position_map = get_inst_idx_to_tensor_position_map(active_inst_idx_list)
 
-            #-- Decode
+            # -- Decode
+#            seq_logit_group = []
             for len_dec_seq in range(1, self.model_opt.max_token_seq_len + 1):
 
                 active_inst_idx_list = beam_decode_step(
-                    inst_dec_beams, len_dec_seq, src_seq, src_enc, inst_idx_to_position_map, n_bm)
-
+                    inst_dec_beams,
+                    len_dec_seq,
+                    src_seq,
+                    src_enc,
+                    inst_idx_to_position_map,
+                    n_bm)
+ #              # seq_logit_group.append(seq_logit)
                 if not active_inst_idx_list:
                     break  # all instances have finished their path to <EOS>
 
-                src_seq, src_enc, inst_idx_to_position_map = collate_active_info(
-                    src_seq, src_enc, inst_idx_to_position_map, active_inst_idx_list)
+                src_seq, src_enc, inst_idx_to_position_map = \
+                    collate_active_info(src_seq,
+                                        src_enc,
+                                        inst_idx_to_position_map,
+                                        active_inst_idx_list)
 
-        batch_hyp, batch_scores = collect_hypothesis_and_scores(inst_dec_beams, self.opt.n_best)
+        batch_hyp, batch_scores = collect_hypothesis_and_scores(
+            inst_dec_beams, self.opt.n_best)
 
-        return batch_hyp, batch_scores
+        return batch_hyp, batch_scores #, seq_logit_group

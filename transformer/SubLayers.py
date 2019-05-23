@@ -1,13 +1,12 @@
 ''' Define the sublayers in encoder/decoder layer '''
+""" Multi-Head Attention module """
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from transformer.Modules import ScaledDotProductAttention
 
-__author__ = "Yu-Hsiang Huang"
 
 class MultiHeadAttention(nn.Module):
-    ''' Multi-Head Attention module '''
 
     def __init__(self, n_head, d_model, d_k, d_v, dropout=0.1):
         super().__init__()
@@ -19,9 +18,15 @@ class MultiHeadAttention(nn.Module):
         self.w_qs = nn.Linear(d_model, n_head * d_k)
         self.w_ks = nn.Linear(d_model, n_head * d_k)
         self.w_vs = nn.Linear(d_model, n_head * d_v)
-        nn.init.normal_(self.w_qs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_k)))
-        nn.init.normal_(self.w_ks.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_k)))
-        nn.init.normal_(self.w_vs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_v)))
+        nn.init.normal_(self.w_qs.weight,
+                        mean=0,
+                        std=np.sqrt(2.0 / (d_model + d_k)))
+        nn.init.normal_(self.w_ks.weight,
+                        mean=0,
+                        std=np.sqrt(2.0 / (d_model + d_k)))
+        nn.init.normal_(self.w_vs.weight,
+                        mean=0,
+                        std=np.sqrt(2.0 / (d_model + d_v)))
 
         self.attention = ScaledDotProductAttention(temperature=np.power(d_k, 0.5))
         self.layer_norm = nn.LayerNorm(d_model)

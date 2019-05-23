@@ -5,7 +5,8 @@ import torch.utils.data
 import argparse
 from tqdm import tqdm
 
-from dataset import paired_collate_fn, TranslationDataset
+import numpy as np
+from dataset import collate_fn_translate, paired_collate_fn, TranslationDataset
 from transformer.Translator import Translator
 import transformer.Constants as Constants
 import torch.nn.functional as F
@@ -14,42 +15,42 @@ import torch.nn.functional as F
 from preprocess import read_instances_from_file, convert_instance_to_idx_seq
 
 
-def cal_performance(pred, gold, smoothing=False):
+def cal_performance(pred, gold):
     """ Apply label smoothing if needed """
 
-    loss = cal_loss(pred, gold, smoothing)
+#    loss = cal_loss(pred, gold, smoothing)
 
-    pred = pred.max(1)[1]
+#    pred = pred.max(1)[1]
     gold = gold.contiguous().view(-1)
     non_pad_mask = gold.ne(Constants.PAD)
     n_correct = pred.eq(gold)
     n_correct = n_correct.masked_select(non_pad_mask).sum().item()
 
-    return loss, n_correct
+    return n_correct
 
-
-def cal_loss(pred, gold, smoothing):
-    """ Calculate cross entropy loss, apply label smoothing if needed. """
-
-    gold = gold.contiguous().view(-1)
-
-    if smoothing:
-        eps = 0.1
-        n_class = pred.size(1)
-
-        one_hot = torch.zeros_like(pred).scatter(1, gold.view(-1, 1), 1)
-        one_hot = one_hot * (1 - eps) + (1 - one_hot) * eps / (n_class - 1)
-        log_prb = F.log_softmax(pred, dim=1)
-
-        non_pad_mask = gold.ne(Constants.PAD)
-        loss = -(one_hot * log_prb).sum(dim=1)
-        loss = loss.masked_select(non_pad_mask).sum()  # average later
-    else:
-        loss = F.cross_entropy(pred, gold,
-                               ignore_index=Constants.PAD,
-                               reduction='sum')
-
-    return loss
+# Loss Currently Deprecated.
+# def cal_loss(pred, gold, smoothing):
+#     """ Calculate cross entropy loss, apply label smoothing if needed. """
+#
+#     gold = gold.contiguous().view(-1)
+#
+#     if smoothing:
+#         eps = 0.1
+#         n_class = pred.size(1)
+#
+#         one_hot = torch.zeros_like(pred).scatter(1, gold.view(-1, 1), 1)
+#         one_hot = one_hot * (1 - eps) + (1 - one_hot) * eps / (n_class - 1)
+#         log_prb = F.log_softmax(pred, dim=1)
+#
+#         non_pad_mask = gold.ne(Constants.PAD)
+#         loss = -(one_hot * log_prb).sum(dim=1)
+#         loss = loss.masked_select(non_pad_mask).sum()  # average later
+#     else:
+#         loss = F.cross_entropy(pred, gold,
+#                                ignore_index=Constants.PAD,
+#                                reduction='sum')
+#
+#     return loss
 
 
 def main():
@@ -114,29 +115,59 @@ def main():
 
     translator = Translator(opt)
 
+    n_word_total = 0
+    n_word_correct = 0
+
     with open(opt.output, 'w') as f:
         for batch in tqdm(test_loader,
                           mininterval=2,
                           desc='  - (Test)',
                           leave=False):
             # all_hyp, all_scores = translator.translate_batch(*batch)
-            all_hyp, all_scores = translator.translate_batch(batch[0],
-                                                             batch[1])
+            all_hyp, all_scores = translator.translate_batch(
+                batch[0], batch[1])
+
+            # print(all_hyp)
+            # print(all_hyp[0])
+            # print(len(all_hyp[0]))
+
+            # pad with 0's fit to max_len in insts_group
             src_seqs = batch[0]
+            # print(src_seqs.shape)
             tgt_seqs = batch[2]
-            count = 0
-
+            # print(tgt_seqs.shape)
             gold = tgt_seqs[:, 1:]
-            trs_loss, n_correct = cal_performance(all_hyp,
-                                                  gold,
-                                                  smoothing=False)
-            print(trs_loss)
-            trs_log = "transformer_loss: {} |".format(trs_loss)
+            # print(gold.shape)
+            max_len = gold.shape[1]
 
-            with open(opt.log, 'a') as log_tf:
-                # print('logging!')
-                log_tf.write(trs_log + '\n')
+            pred_seq = []
+            for item in all_hyp:
+                curr_item = item[0]
+                curr_len = len(curr_item)
+                # print(curr_len, max_len)
+                # print(curr_len)
+                if curr_len < max_len:
+                    diff = max_len - curr_len
+                    curr_item.extend([0]*diff)
+                else:  # TODO: why does this case happen?
+                    curr_item = curr_item[:max_len]
+                pred_seq.append(curr_item)
+            pred_seq = torch.LongTensor(np.array(pred_seq))
+            pred_seq = pred_seq.view(opt.batch_size * max_len)
 
+            n_correct = cal_performance(pred_seq, gold)
+
+            non_pad_mask = gold.ne(Constants.PAD)
+            n_word = non_pad_mask.sum().item()
+            n_word_total += n_word
+            n_word_correct += n_correct
+
+            # trs_log = "transformer_loss: {} |".format(trs_loss)
+            #
+            # with open(opt.log, 'a') as log_tf:
+            #     log_tf.write(trs_log + '\n')
+
+            count = 0
             for pred_seqs in all_hyp:
                 src_seq = src_seqs[count]
                 tgt_seq = tgt_seqs[count]
@@ -153,6 +184,13 @@ def main():
                     f.write("\n [pred] " + pred_line + '\n')
 
                     count += 1
+
+        accuracy = n_word_correct / n_word_total
+        accr_log = "accuracy: {} |".format(accuracy)
+        # print(accr_log)
+
+        with open(opt.log, 'a') as log_tf:
+            log_tf.write(accr_log + '\n')
 
     print('[Info] Finished.')
 

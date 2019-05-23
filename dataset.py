@@ -31,6 +31,25 @@ def collate_fn(insts):
     return batch_seq, batch_pos
 
 
+def collate_fn_translate(insts):
+    """Pad the instance to the max seq length in batch"""
+
+    max_len = max(len(inst[0]) for inst in insts)
+
+    batch_seq = np.array([
+        inst + [Constants.PAD] * (max_len - len(inst))
+        for inst in insts])
+
+    batch_pos = np.array([
+        [pos_i+1 if w_i != Constants.PAD else 0
+         for pos_i, w_i in enumerate(inst)] for inst in batch_seq])
+
+    batch_seq = torch.LongTensor(batch_seq)
+    batch_pos = torch.LongTensor(batch_pos)
+
+    return batch_seq, batch_pos
+
+
 class TranslationDataset(torch.utils.data.Dataset):
     def __init__(
             self,

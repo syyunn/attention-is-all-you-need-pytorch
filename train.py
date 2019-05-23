@@ -17,12 +17,18 @@ from transformer.Models import Transformer
 from transformer.Optim import ScheduledOptim
 
 
-def cal_performance(pred, gold, smoothing=False):
+def cal_performance(pred,
+                    gold,
+                    smoothing=False):
     """ Apply label smoothing if needed """
 
-    loss = cal_loss(pred, gold, smoothing)
+    loss = cal_loss(pred,
+                    gold,
+                    smoothing)
 
     pred = pred.max(1)[1]
+#    print(pred)
+#    print(pred.shape)
     gold = gold.contiguous().view(-1)
     non_pad_mask = gold.ne(Constants.PAD)
     n_correct = pred.eq(gold)
@@ -88,7 +94,8 @@ def train_epoch(log_train_file,
                      src_pos,
                      tgt_seq,
                      tgt_pos)
-
+#        print("pred", pred)
+#        print(pred.shape)
         # backward
         loss, n_correct = cal_performance(pred,
                                           gold,
@@ -146,6 +153,9 @@ def eval_epoch(log_valid_file,
                          src_pos,
                          tgt_seq,
                          tgt_pos)
+
+#            print(pred)
+
             loss, n_correct = cal_performance(pred,
                                               gold,
                                               smoothing=False)
@@ -233,8 +243,6 @@ def train(model,
             # print('logging!')
             log_vf.write(log + '\n')
 
-
-
         valid_accus += [valid_accu]
 
         model_state_dict = model.state_dict()
@@ -245,7 +253,8 @@ def train(model,
 
         if opt.save_model:
             if opt.save_mode == 'all':
-                model_name = opt.save_model + '_accu_{accu:3.3f}.chkpt'.format(accu=100*valid_accu)
+                model_name = opt.save_model + '_accu_{accu:3.3f}.chkpt'.\
+                    format(accu=100*valid_accu)
                 torch.save(checkpoint, model_name)
             elif opt.save_mode == 'best':
                 model_name = opt.save_model + '.chkpt'
@@ -345,7 +354,8 @@ def main():
         optim.Adam(
             filter(lambda x: x.requires_grad,
                    transformer.parameters()),
-            betas=(0.9, 0.98), eps=1e-09),
+            betas=(0.9, 0.98),
+            eps=1e-09),
         opt.d_model,
         opt.n_warmup_steps)
 
