@@ -95,32 +95,15 @@ def train_epoch(infersent_model,
             src_line_clear = src_line[3:].split('</s>')[0]
             batch_src_to_feed_infersent.append(src_line_clear)
 
-        batch_tgt_to_feed_infersent = []
-        for seq in tgt_seq:
-            tgt_line = ' '.join([training_data.dataset.tgt_idx2word[idx]
-                                 for idx in seq.data.cpu().numpy()])
-            tgt_line_clear = tgt_line[3:].split('</s>')[0]
-            batch_tgt_to_feed_infersent.append(tgt_line_clear)
+        # batch_tgt_to_feed_infersent = []
+        # for seq in tgt_seq:
+        #     tgt_line = ' '.join([training_data.dataset.tgt_idx2word[idx]
+        #                          for idx in seq.data.cpu().numpy()])
+        #     tgt_line_clear = tgt_line[3:].split('</s>')[0]
+        #     batch_tgt_to_feed_infersent.append(tgt_line_clear)
 
-        batch_src_infersent_enc = infersent_model.encode(
-            batch_src_to_feed_infersent)
-        batch_tgt_infersent_enc = infersent_model.encode(
-            batch_tgt_to_feed_infersent)
-
-        sumrz_devit = batch_src_infersent_enc - batch_tgt_infersent_enc
-
-        general_permitance = 1.067753
-        dists = np.linalg.norm(sumrz_devit, axis=1)
-
-        dists_error = dists - general_permitance
-
-        positivedx= np.where(dists_error > 0)[0]
-
-        ifs_loss_multiplier = 20000
-
-        ifs_loss = np.mean(dists_error[positivedx]) * ifs_loss_multiplier
-        ifs_log = "infersent_loss: {} |".format(ifs_loss)
-        print(ifs_log)
+        # print("batch_src_to_feed_infersent", batch_src_to_feed_infersent)
+        # print("batch_tgt_to_feed_infersent", batch_tgt_to_feed_infersent)
 
         # forward
         optimizer.zero_grad()
@@ -129,7 +112,42 @@ def train_epoch(infersent_model,
                      tgt_seq,
                      tgt_pos)
 
-        # backward
+        pred_max = pred.max(1)[1].view(64, -1)
+
+        def _translate(torch_tokens):
+            translation = ' '.join([training_data.dataset.tgt_idx2word[idx]
+                                    for idx in torch_tokens.data.cpu().numpy()])
+            translation = translation.split('<blank>')[0]
+            translation = ' ' + translation
+            return translation
+
+        batch_pred_to_feed_infersent = []
+        for sent_token in pred_max:
+            translated_pred = _translate(sent_token)
+            batch_pred_to_feed_infersent.append(translated_pred)
+
+        batch_src_infersent_enc = infersent_model.encode(
+            batch_src_to_feed_infersent)
+        # batch_tgt_infersent_enc = infersent_model.encode(
+        #     batch_tgt_to_feed_infersent)
+        batch_pred_infersent_enc = infersent_model.encode(
+            batch_pred_to_feed_infersent)
+
+        sumrz_devit = batch_src_infersent_enc - batch_pred_infersent_enc
+
+        general_permittance = 1.067753
+        dists = np.linalg.norm(sumrz_devit, axis=1)
+
+        dists_error = dists - general_permittance
+
+        positivedx= np.where(dists_error > 0)[0]
+
+        ifs_loss_multiplier = 16000
+
+        ifs_loss = np.mean(dists_error[positivedx]) * ifs_loss_multiplier
+        ifs_log = "infersent_loss: {} |".format(ifs_loss)
+        print(ifs_log)
+
         trs_loss, n_correct = cal_performance(pred,
                                               gold,
                                               smoothing=smoothing)
@@ -145,6 +163,7 @@ def train_epoch(infersent_model,
             # print('logging!')
             log_tf.write(trs_log + ifs_log + final_log + '\n')
         # print("data", final_loss.data.cpu())
+
         final_loss.backward()
 
         # update parameters
