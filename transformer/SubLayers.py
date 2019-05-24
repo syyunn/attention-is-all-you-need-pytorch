@@ -1,4 +1,4 @@
-''' Define the sublayers in encoder/decoder layer '''
+""" Define the sublayers in encoder/decoder layer """
 """ Multi-Head Attention module """
 import numpy as np
 import torch.nn as nn

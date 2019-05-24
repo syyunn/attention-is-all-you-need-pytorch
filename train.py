@@ -94,8 +94,7 @@ def train_epoch(log_train_file,
                      src_pos,
                      tgt_seq,
                      tgt_pos)
-#        print("pred", pred)
-#        print(pred.shape)
+
         # backward
         loss, n_correct = cal_performance(pred,
                                           gold,
@@ -299,6 +298,7 @@ def main():
     parser.add_argument('-dropout', type=float, default=0.1)
     parser.add_argument('-embs_share_weight', action='store_true')
     parser.add_argument('-proj_share_weight', action='store_true')
+    parser.add_argument('-allow_copy', action='store_false')
 
     parser.add_argument('-log',
                         default=None)
@@ -339,6 +339,7 @@ def main():
         opt.src_vocab_size,
         opt.tgt_vocab_size,
         opt.max_token_seq_len,
+        device=device,
         tgt_emb_prj_weight_sharing=opt.proj_share_weight,
         emb_src_tgt_weight_sharing=opt.embs_share_weight,
         d_k=opt.d_k,
@@ -348,7 +349,8 @@ def main():
         d_inner=opt.d_inner_hid,
         n_layers=opt.n_layers,
         n_head=opt.n_head,
-        dropout=opt.dropout).to(device)
+        dropout=opt.dropout,
+        allow_copy=opt.allow_copy).to(device)
 
     optimizer = ScheduledOptim(
         optim.Adam(

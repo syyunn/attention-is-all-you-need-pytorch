@@ -27,9 +27,9 @@ def plot2d_multiVal(nested_list_of_values,
 
 
 if __name__ == "__main__":
-    fpath = "logs/smgsv_ifs_e10/train.log"
-    savepath = "logs/smgsv_ifs_e10/trainLoss_ifs.png"
-    accu_saveapth = "logs/smgsv_ifs_e10/accuracy_train_ifs.png"
+    fpath = "logs/debug/valid.log"
+    savepath = "logs/debug/validLoss_ifs.png"
+    accu_saveapth = "logs/debug/accuracy_valid_ifs.png"
 
     with open(fpath) as f:
         content = f.readlines()

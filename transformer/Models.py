@@ -42,7 +42,8 @@ def get_attn_key_pad_mask(seq_k, seq_q):
     # Expand to fit the shape of key query attention matrix.
     len_q = seq_q.size(1)
     padding_mask = seq_k.eq(Constants.PAD)
-    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q, -1)  # b x lq x lk
+    padding_mask = padding_mask.unsqueeze(1).expand(-1, len_q,
+                                                    -1)  # b x lq x lk
 
     return padding_mask
 
@@ -56,7 +57,8 @@ def get_subsequent_mask(seq):
                    device=seq.device,
                    dtype=torch.uint8),
         diagonal=1)
-    subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)  # b x ls x ls
+    subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1,
+                                                          -1)  # b x ls x ls
 
     return subsequent_mask
 
@@ -145,17 +147,31 @@ class Decoder(nn.Module):
         n_position = len_max_seq + 1
 
         self.tgt_word_emb = nn.Embedding(
-            n_tgt_vocab, d_word_vec, padding_idx=Constants.PAD)
+            n_tgt_vocab,
+            d_word_vec,
+            padding_idx=Constants.PAD)
 
         self.position_enc = nn.Embedding.from_pretrained(
-            get_sinusoid_encoding_table(n_position, d_word_vec, padding_idx=0),
+            get_sinusoid_encoding_table(n_position,
+                                        d_word_vec,
+                                        padding_idx=0),
             freeze=True)
 
         self.layer_stack = nn.ModuleList([
-            DecoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout)
+            DecoderLayer(d_model,
+                         d_inner,
+                         n_head,
+                         d_k,
+                         d_v,
+                         dropout=dropout)
             for _ in range(n_layers)])
 
-    def forward(self, tgt_seq, tgt_pos, src_seq, enc_output, return_attns=False):
+    def forward(self,
+                tgt_seq,
+                tgt_pos,
+                src_seq,
+                enc_output,
+                return_attns=False):
 
         dec_slf_attn_list, dec_enc_attn_list = [], []
 
@@ -163,17 +179,20 @@ class Decoder(nn.Module):
         non_pad_mask = get_non_pad_mask(tgt_seq)
 
         slf_attn_mask_subseq = get_subsequent_mask(tgt_seq)
-        slf_attn_mask_keypad = get_attn_key_pad_mask(seq_k=tgt_seq, seq_q=tgt_seq)
+        slf_attn_mask_keypad = get_attn_key_pad_mask(seq_k=tgt_seq,
+                                                     seq_q=tgt_seq)
         slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
 
-        dec_enc_attn_mask = get_attn_key_pad_mask(seq_k=src_seq, seq_q=tgt_seq)
+        dec_enc_attn_mask = get_attn_key_pad_mask(seq_k=src_seq,
+                                                  seq_q=tgt_seq)
 
         # -- Forward
         dec_output = self.tgt_word_emb(tgt_seq) + self.position_enc(tgt_pos)
 
         for dec_layer in self.layer_stack:
             dec_output, dec_slf_attn, dec_enc_attn = dec_layer(
-                dec_output, enc_output,
+                dec_output,
+                enc_output,
                 non_pad_mask=non_pad_mask,
                 slf_attn_mask=slf_attn_mask,
                 dec_enc_attn_mask=dec_enc_attn_mask)
@@ -195,6 +214,7 @@ class Transformer(nn.Module):
             n_src_vocab,
             n_tgt_vocab,
             len_max_seq,
+            device,
             d_word_vec=512,
             d_model=512,
             d_inner=2048,
@@ -204,9 +224,15 @@ class Transformer(nn.Module):
             d_v=64,
             dropout=0.1,
             tgt_emb_prj_weight_sharing=True,
-            emb_src_tgt_weight_sharing=True):
+            emb_src_tgt_weight_sharing=True,
+            allow_copy=True):
 
         super().__init__()
+        self.n_src_vocab = n_src_vocab
+        self.n_tgt_vocab = n_tgt_vocab
+        self.allow_copy = allow_copy
+        self.device = device
+
         self.tgt_emb_prj_weight_sharing = tgt_emb_prj_weight_sharing
         self.encoder = Encoder(
             n_src_vocab=n_src_vocab,
@@ -221,20 +247,36 @@ class Transformer(nn.Module):
             dropout=dropout)
 
         self.decoder = Decoder(
-            n_tgt_vocab=n_tgt_vocab, len_max_seq=len_max_seq,
-            d_word_vec=d_word_vec, d_model=d_model, d_inner=d_inner,
-            n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
+            n_tgt_vocab=n_tgt_vocab,
+            len_max_seq=len_max_seq,
+            d_word_vec=d_word_vec,
+            d_model=d_model,
+            d_inner=d_inner,
+            n_layers=n_layers,
+            n_head=n_head,
+            d_k=d_k,
+            d_v=d_v,
             dropout=dropout)
 
         self.tgt_word_prj = nn.Linear(d_model, n_tgt_vocab, bias=False)
         nn.init.xavier_normal_(self.tgt_word_prj.weight)
+        # this makes the tensor to be enlarged to the size of n_voca
+
+        # - Added by Zachary | p_gen generator ################################
+        if allow_copy:
+            print("Copying Mechanism Initialized")
+            self.p_gen_linear = nn.Linear(d_model, 1, bias=False)
+            self.p_gen_sig = nn.Sigmoid()
+            nn.init.xavier_normal_(self.p_gen_linear.weight)
+        #######################################################################
 
         assert d_model == d_word_vec, \
-        'To facilitate the residual connections, \
+            'To facilitate the residual connections, \
          the dimensions of all module outputs shall be the same.'
 
         if tgt_emb_prj_weight_sharing:
-            # Share the weight matrix between target word embedding & the final logit dense layer
+            # Share the weight matrix between target word embedding & the
+            # final logit dense layer
             self.tgt_word_prj.weight = self.decoder.tgt_word_emb.weight
             self.x_logit_scale = (d_model ** -0.5)
         else:
@@ -243,15 +285,76 @@ class Transformer(nn.Module):
         if emb_src_tgt_weight_sharing:
             # Share the weight matrix between source & target word embeddings
             assert n_src_vocab == n_tgt_vocab, \
-            "To share word embedding table, the vocabulary size of src/tgt shall be the same."
+                "To share word embedding table, the vocabulary size of " \
+                "src/tgt shall be the same. "
             self.encoder.src_word_emb.weight = self.decoder.tgt_word_emb.weight
 
-    def forward(self, src_seq, src_pos, tgt_seq, tgt_pos):
+    def forward(self,
+                src_seq,
+                src_pos,
+                tgt_seq,
+                tgt_pos):
+
+        # - Added by Zachary ##################################################
+        if self.allow_copy:
+            # print("[info] copying mask generation..")
+            # To add the copy mask that has 1 only in the position of src
+            # sequence
+            # To use this mechanism, following condition must be fulfilled
+            assert self.n_src_vocab == self.n_tgt_vocab
+
+            # Find The Token Appeared in src sequence
+            uniques = torch.unique(src_seq, dim=1).cpu().detach().numpy()
+            # print(uniques.shape)
+
+            p_gen_mask_shape = (src_seq.shape[0], self.n_tgt_vocab)
+            p_gen_mask = torch.tensor(np.zeros(p_gen_mask_shape),
+                                      dtype=torch.float)
+
+            batch_size = src_seq.shape[0]
+            p_gen_mask[np.arange(batch_size)[:, None], uniques] = 1
+            p_gen_mask = p_gen_mask.to(self.device)
+            # print(p_gen_mask.shape)
+        # - ##################################################################
 
         tgt_seq, tgt_pos = tgt_seq[:, :-1], tgt_pos[:, :-1]
 
         enc_output, *_ = self.encoder(src_seq, src_pos)
         dec_output, *_ = self.decoder(tgt_seq, tgt_pos, src_seq, enc_output)
-        seq_logit = self.tgt_word_prj(dec_output) * self.x_logit_scale
+        # what happens when enc_output goes into the decoder?
 
-        return seq_logit.view(-1, seq_logit.size(2))
+        seq_logit = self.tgt_word_prj(dec_output) * self.x_logit_scale
+        # print(seq_logit)
+        # print("seq_logit.shape", seq_logit.shape)
+        seq_max_len = seq_logit.shape[1]
+        # print("seq_max_len", seq_max_len)
+
+        # Extend dimension upto max sequence_length ###############
+        p_gen_mask = p_gen_mask[:, None, :]
+        p_gen_mask = torch.repeat_interleave(p_gen_mask, seq_max_len, dim=1)
+        # print(p_gen_mask)
+        # print(p_gen_mask.shape)
+        ###########################################################
+
+        # Added by Zachary | p_gen generator ##
+        if self.allow_copy:
+            # print("[info] p_gen generated")
+            # print("dec_output.shape", dec_output.shape)
+            p_gen = self.p_gen_linear(dec_output)
+            p_gen = self.p_gen_sig(p_gen)
+            # print("p_gen", p_gen[0][0])
+            masked_seq_logit = seq_logit * p_gen_mask
+            # print(masked_seq_logit)
+            # print(masked_seq_logit.shape)
+
+            final_seq_logit = p_gen * seq_logit + (1-p_gen) * masked_seq_logit
+            final_output = final_seq_logit.view(-1, seq_logit.size(2))
+        #######################################
+
+        else:
+            final_output = seq_logit.view(-1, seq_logit.size(2))
+            # .view(-1, seq_logit.size(2)) is to turn batch-wise into
+            # batch-aggregation.
+
+        return final_output
+        # this returns tensor.shape = (batch_size * max_seq_len, n_voca)
