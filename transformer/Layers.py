@@ -50,11 +50,14 @@ class DecoderLayer(nn.Module):
                 non_pad_mask=None,
                 slf_attn_mask=None,
                 dec_enc_attn_mask=None):
+        # print("initial | dec_input", dec_input.shape)
+
         dec_output, dec_slf_attn = self.slf_attn(
             dec_input,
             dec_input,
             dec_input,
             mask=slf_attn_mask)
+        # print("slf_attn | dec_output", dec_output.shape)
         dec_output *= non_pad_mask
 
         dec_output, dec_enc_attn = self.enc_attn(
@@ -62,9 +65,13 @@ class DecoderLayer(nn.Module):
             enc_output,
             enc_output,
             mask=dec_enc_attn_mask)
+        # print("enc_attn | dec_output", dec_output.shape)
+
         dec_output *= non_pad_mask
+        # print("non_pad_mask_1 | dec_output", dec_output.shape)
 
         dec_output = self.pos_ffn(dec_output)
         dec_output *= non_pad_mask
+        # print("non_pad_mask_2 | dec_output", dec_output.shape)
 
         return dec_output, dec_slf_attn, dec_enc_attn

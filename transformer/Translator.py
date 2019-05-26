@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from transformer.Models import Transformer
 from transformer.Beam import Beam
 
+import numpy as np
+
 
 class Translator(object):
     """ Load with trained model and handle the beam search """
@@ -23,6 +25,7 @@ class Translator(object):
             model_opt.src_vocab_size,
             model_opt.tgt_vocab_size,
             model_opt.max_token_seq_len,
+            self.device,
             tgt_emb_prj_weight_sharing=model_opt.proj_share_weight,
             emb_src_tgt_weight_sharing=model_opt.embs_share_weight,
             d_k=model_opt.d_k,
@@ -43,6 +46,8 @@ class Translator(object):
 
         self.model = model
         self.model.eval()
+
+        self.n_voca = model_opt.src_vocab_size
 
     def translate_batch(self, src_seq, src_pos):
         """ Translation work in one batch """
@@ -113,33 +118,82 @@ class Translator(object):
                 dec_partial_pos = dec_partial_pos.unsqueeze(0).repeat(n_active_inst * n_bm, 1)
                 return dec_partial_pos
 
-            def predict_word(dec_seq, dec_pos, src_seq, enc_output, n_active_inst, n_bm):
-                # # Added by Zachary
-                # if self.model.tgt_emb_prj_weight_sharing:
-                #     # Share the weight matrix between target word embedding &
-                #     # the final logit dense layer
-                #     self.tgt_word_prj.weight = self.decoder.tgt_word_emb.weight
-                #     self.x_logit_scale = (self.model.d_model ** -0.5)
-                # else:
-                #     self.x_logit_scale = 1.
+            def predict_word(dec_seq,
+                             dec_pos,
+                             src_seq,
+                             enc_output,
+                             n_active_inst,
+                             n_bm):
+                ##############################################################
+                # Make Mask
+                # Find The Token Appeared in src sequence
+                uniques = torch.unique(src_seq,
+                                       dim=1).cpu().detach().numpy()
+                # print(uniques.shape)
+
+                p_gen_mask_shape = (src_seq.shape[0], self.n_voca)
+                p_gen_mask = torch.tensor(np.zeros(p_gen_mask_shape),
+                                          dtype=torch.float)
+
+                batch_size = src_seq.shape[0]
+                p_gen_mask[np.arange(batch_size)[:, None], uniques] = 1
+                p_gen_mask = p_gen_mask.to(self.device)
+                # print(p_gen_mask.shape)
+                ############################################################
 
                 dec_output, *_ = self.model.decoder(dec_seq,
                                                     dec_pos,
                                                     src_seq,
                                                     enc_output)
+                print("dec_output.shape | before reshape", dec_output.shape)
+                p_gen, *_ = self.model.p_generator(dec_seq,
+                                                   dec_pos,
+                                                   src_seq,
+                                                   enc_output)
+                p_gen = p_gen[:, -1, :]  # to get just last one.. why?
+                # print("p_gen", p_gen.shape)
 
-                # def get_seq_logit(decode_output):
-                #     sequence_logit = self.model.tgt_word_prj(
-                #         dec_output) * self.x_logit_scale
-                #     return sequence_logit.view(-1, sequence_logit.size(2))
-                # seq_logit = get_seq_logit(dec_output)
+                p_gen = self.model.p_gen_linear(p_gen)
+                p_gen = self.model.p_gen_sig(p_gen)
 
                 dec_output = dec_output[:, -1, :]
+                print("dec_output.shape | after reshape", dec_output.shape)
+
+                seq_logit = self.model.tgt_word_prj(dec_output)  #
+                print("seq_logit.shape | wo rd_prj", seq_logit.shape)
+
+                seq_max_len = 1
+                print("seq_max_len", seq_max_len)
+
+                p_gen_mask = p_gen_mask[:, None, :]
+                p_gen_mask = p_gen_mask[:, -1, :]
+
+                print("p_gen_mask", p_gen_mask.shape)
+
+                p_gen_mask = torch.repeat_interleave(p_gen_mask,
+                                                     seq_max_len,
+                                                     dim=1)
+                masked_seq_logit = seq_logit * p_gen_mask
+                print("masked_seq_logit.shape", masked_seq_logit.shape)
+                ###########################################################
+                softmax = torch.nn.Softmax(dim=1)
+                prb_gen = softmax(seq_logit)
+                prb_cp = softmax(masked_seq_logit)
+
+                exclusive_copy_or_gen = True
+                if exclusive_copy_or_gen:
+                    p_gen = p_gen > 1/2
+                    p_gen = p_gen.to(torch.float)
+
+                prb = prb_gen * p_gen + prb_cp * (1 - p_gen)
+
+                word_prob = prb.log()
 
                 # Pick the last step: (bh * bm) * d_h
 
-                word_prob = F.log_softmax(self.model.tgt_word_prj(dec_output),
-                                          dim=1)
+                # word_prob = F.log_softmax(self.model.tgt_word_prj(dec_output),
+                #                           dim=1)
+
                 word_prob = word_prob.view(n_active_inst, n_bm, -1)
 
                 return word_prob
@@ -156,7 +210,7 @@ class Translator(object):
 
                 return active_inst_idx_list
 
-            n_active_inst = len(inst_idx_to_position_map)
+            n_active_inst = len(inst_idx_to_position_map)  # int
 
             dec_seq = prepare_beam_dec_seq(inst_dec_beams, len_dec_seq)
             dec_pos = prepare_beam_dec_pos(len_dec_seq,
@@ -166,14 +220,14 @@ class Translator(object):
                                      dec_pos,
                                      src_seq,
                                      enc_output,
-                                     n_active_inst,
-                                     n_bm)
+                                     n_active_inst,  # what is n_active_inst?
+                                     n_bm)  # what is n_bm?
 
             # Update the beam with predicted word prob information and collect incomplete instances
             active_inst_idx_list = collect_active_inst_idx_list(
                 inst_dec_beams, word_prob, inst_idx_to_position_map)
 
-            return active_inst_idx_list # , seq_logit
+            return active_inst_idx_list
 
         def collect_hypothesis_and_scores(inst_dec_beams, n_best):
             all_hyp, all_scores = [], []
@@ -186,23 +240,24 @@ class Translator(object):
             return all_hyp, all_scores
 
         with torch.no_grad():
-            #-- Encode
+            # -- Encode
             src_seq, src_pos = src_seq.to(self.device), src_pos.to(self.device)
             src_enc, *_ = self.model.encoder(src_seq, src_pos)
 
-            #-- Repeat data for beam search
+            # -- Repeat data for beam search
             n_bm = self.opt.beam_size
             n_inst, len_s, d_h = src_enc.size()
             src_seq = src_seq.repeat(1, n_bm).view(n_inst * n_bm, len_s)
             src_enc = src_enc.repeat(1, n_bm, 1).view(n_inst * n_bm, len_s, d_h)
 
-            #-- Prepare beams
+            # -- Prepare beams
             inst_dec_beams = [Beam(n_bm, device=self.device)
                               for _ in range(n_inst)]
 
             # -- Bookkeeping for active or not
             active_inst_idx_list = list(range(n_inst))
-            inst_idx_to_position_map = get_inst_idx_to_tensor_position_map(active_inst_idx_list)
+            inst_idx_to_position_map = get_inst_idx_to_tensor_position_map(
+                active_inst_idx_list)
 
             # -- Decode
 #            seq_logit_group = []
@@ -215,7 +270,7 @@ class Translator(object):
                     src_enc,
                     inst_idx_to_position_map,
                     n_bm)
- #              # seq_logit_group.append(seq_logit)
+                # seq_logit_group.append(seq_logit)
                 if not active_inst_idx_list:
                     break  # all instances have finished their path to <EOS>
 
@@ -229,3 +284,4 @@ class Translator(object):
             inst_dec_beams, self.opt.n_best)
 
         return batch_hyp, batch_scores #, seq_logit_group
+

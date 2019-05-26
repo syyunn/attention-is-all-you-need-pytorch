@@ -100,16 +100,6 @@ def train_epoch(infersent_model,
 
         batch_size = batch_src_infersent_enc.shape[0]
 
-        # batch_tgt_to_feed_infersent = []
-        # for seq in tgt_seq:
-        #     tgt_line = ' '.join([training_data.dataset.tgt_idx2word[idx]
-        #                          for idx in seq.data.cpu().numpy()])
-        #     tgt_line_clear = tgt_line[3:].split('</s>')[0]
-        #     batch_tgt_to_feed_infersent.append(tgt_line_clear)
-
-        # print("batch_src_to_feed_infersent", batch_src_to_feed_infersent)
-        # print("batch_tgt_to_feed_infersent", batch_tgt_to_feed_infersent)
-
         # forward
         optimizer.zero_grad()
         pred = model(src_seq,

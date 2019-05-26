@@ -172,6 +172,7 @@ class Decoder(nn.Module):
                 src_seq,
                 enc_output,
                 return_attns=False):
+        # print("tgt_seq | tgt_seq.   shape", tgt_seq.shape)
 
         dec_slf_attn_list, dec_enc_attn_list = [], []
 
@@ -188,6 +189,7 @@ class Decoder(nn.Module):
 
         # -- Forward
         dec_output = self.tgt_word_emb(tgt_seq) + self.position_enc(tgt_pos)
+        # print("before multi-heads | dec_output.shape", dec_output.shape)
 
         for dec_layer in self.layer_stack:
             dec_output, dec_slf_attn, dec_enc_attn = dec_layer(
@@ -196,7 +198,88 @@ class Decoder(nn.Module):
                 non_pad_mask=non_pad_mask,
                 slf_attn_mask=slf_attn_mask,
                 dec_enc_attn_mask=dec_enc_attn_mask)
+            # print("dec_output_loop.shape", dec_output.shape)
+            if return_attns:
+                dec_slf_attn_list += [dec_slf_attn]
+                dec_enc_attn_list += [dec_enc_attn]
 
+        if return_attns:
+            return dec_output, dec_slf_attn_list, dec_enc_attn_list
+        return dec_output,
+
+
+class PGEN(nn.Module):
+    """ A decoder model with self attention mechanism. """
+
+    def __init__(
+            self,
+            n_tgt_vocab,
+            len_max_seq,
+            d_word_vec,
+            n_layers,
+            n_head,
+            d_k,
+            d_v,
+            d_model,
+            d_inner,
+            dropout=0.1):
+
+        super().__init__()
+        n_position = len_max_seq + 1
+
+        self.tgt_word_emb = nn.Embedding(
+            n_tgt_vocab,
+            d_word_vec,
+            padding_idx=Constants.PAD)
+
+        self.position_enc = nn.Embedding.from_pretrained(
+            get_sinusoid_encoding_table(n_position,
+                                        d_word_vec,
+                                        padding_idx=0),
+            freeze=True)
+
+        self.layer_stack = nn.ModuleList([
+            DecoderLayer(d_model,
+                         d_inner,
+                         n_head,
+                         d_k,
+                         d_v,
+                         dropout=dropout)
+            for _ in range(n_layers)])
+
+    def forward(self,
+                tgt_seq,
+                tgt_pos,
+                src_seq,
+                enc_output,
+                return_attns=False):
+        # print("tgt_seq | tgt_seq.   shape", tgt_seq.shape)
+
+        dec_slf_attn_list, dec_enc_attn_list = [], []
+
+        # -- Prepare masks
+        non_pad_mask = get_non_pad_mask(tgt_seq)
+
+        slf_attn_mask_subseq = get_subsequent_mask(tgt_seq)
+        slf_attn_mask_keypad = get_attn_key_pad_mask(seq_k=tgt_seq,
+                                                     seq_q=tgt_seq)
+        slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
+
+        dec_enc_attn_mask = get_attn_key_pad_mask(seq_k=src_seq,
+                                                  seq_q=tgt_seq)
+
+        # -- Forward
+        dec_output = self.tgt_word_emb(tgt_seq) + self.position_enc(tgt_pos)
+        # print("before multi-heads | dec_output.shape", dec_output.shape)
+
+        for dec_layer in self.layer_stack:
+            dec_output, dec_slf_attn, dec_enc_attn = dec_layer(
+                dec_output,
+                enc_output,
+                non_pad_mask=non_pad_mask,
+                slf_attn_mask=slf_attn_mask,
+                dec_enc_attn_mask=dec_enc_attn_mask)
+            # print("dec_output_loop.shape", dec_output.shape)
             if return_attns:
                 dec_slf_attn_list += [dec_slf_attn]
                 dec_enc_attn_list += [dec_enc_attn]
@@ -258,17 +341,33 @@ class Transformer(nn.Module):
             d_v=d_v,
             dropout=dropout)
 
+        self.p_generator = PGEN(
+            n_tgt_vocab=n_tgt_vocab,
+            len_max_seq=len_max_seq,
+            d_word_vec=d_word_vec,
+            d_model=d_model,
+            d_inner=d_inner,
+            n_layers=n_layers,
+            n_head=n_head,
+            d_k=d_k,
+            d_v=d_v,
+            dropout=dropout)
+
         self.tgt_word_prj = nn.Linear(d_model, n_tgt_vocab, bias=False)
         nn.init.xavier_normal_(self.tgt_word_prj.weight)
         # this makes the tensor to be enlarged to the size of n_voca
 
-        # - Added by Zachary | p_gen generator ################################
+        # self.final_linear = nn.Linear(n_tgt_vocab, n_tgt_vocab, bias=True)
+        # nn.init.xavier_normal_(self.final_linear.weight)
+        # self.final_relu = nn.ReLU()
+
+        # - Added by Zachary | p_gen generator ##################
         if allow_copy:
             print("Copying Mechanism Initialized")
             self.p_gen_linear = nn.Linear(d_model, 1, bias=False)
             self.p_gen_sig = nn.Sigmoid()
             nn.init.xavier_normal_(self.p_gen_linear.weight)
-        #######################################################################
+        #########################################################
 
         assert d_model == d_word_vec, \
             'To facilitate the residual connections, \
@@ -320,8 +419,12 @@ class Transformer(nn.Module):
         tgt_seq, tgt_pos = tgt_seq[:, :-1], tgt_pos[:, :-1]
 
         enc_output, *_ = self.encoder(src_seq, src_pos)
+        # print("enc_ouptut.shape", enc_output.shape)
         dec_output, *_ = self.decoder(tgt_seq, tgt_pos, src_seq, enc_output)
         # what happens when enc_output goes into the decoder?
+        # print("dec_output.shape", dec_output.shape)
+
+        p_gen, *_ = self.p_generator(tgt_seq, tgt_pos, src_seq, enc_output)
 
         seq_logit = self.tgt_word_prj(dec_output) * self.x_logit_scale
         # print(seq_logit)
@@ -338,23 +441,52 @@ class Transformer(nn.Module):
 
         # Added by Zachary | p_gen generator ##
         if self.allow_copy:
-            # print("[info] p_gen generated")
-            # print("dec_output.shape", dec_output.shape)
-            p_gen = self.p_gen_linear(dec_output)
+            p_gen = self.p_gen_linear(p_gen)
             p_gen = self.p_gen_sig(p_gen)
-            # print("p_gen", p_gen[0][0])
+
             masked_seq_logit = seq_logit * p_gen_mask
-            # print(masked_seq_logit)
-            # print(masked_seq_logit.shape)
 
-            final_seq_logit = p_gen * seq_logit + (1-p_gen) * masked_seq_logit
-            final_output = final_seq_logit.view(-1, seq_logit.size(2))
-        #######################################
+            # to penalize redundancy
+            # to count duplicated prediction
 
-        else:
-            final_output = seq_logit.view(-1, seq_logit.size(2))
-            # .view(-1, seq_logit.size(2)) is to turn batch-wise into
-            # batch-aggregation.
+###############################################################################
+# redundancy loss unit
+            # def _cal_redun(seq_logit):
+            #     redun_score = 0
+            #     seq_logit_redun = seq_logit.max(2)[1]
+            #     for sentence in seq_logit_redun:
+            #         sent_dict = dict()
+            #         sentence_redun = 0
+            #         for item in sentence:
+            #             token_idx = int(item.data.cpu())
+            #             if token_idx in sent_dict.keys():
+            #                 # sent_dict[token_idx] += 1
+            #                 sentence_redun += 1
+            #             else:
+            #                 sent_dict[token_idx] = 1
+            #         redun_score += sentence_redun
+            #     return redun_score
 
-        return final_output
+            # redun_seq = _cal_redun(seq_logit)
+            # redun_masked = _cal_redun(masked_seq_logit)
+            #
+            # redun = redun_seq + redun_masked
+###############################################################################
+
+            # flatten
+            seq_logit = seq_logit.view(-1, seq_logit.size(2))
+            masked_seq_logit = masked_seq_logit.view(-1,
+                                                     masked_seq_logit.size(2))
+            p_gen = p_gen.view(-1, p_gen.size(2))
+
+
+
+        ###########################################################
+
+        # else:
+        #     final_output = seq_logit.view(-1, seq_logit.size(2))
+        #     # .view(-1, seq_logit.size(2)) is to turn batch-wise into
+        #     # batch-aggregation.
+
+        return seq_logit, masked_seq_logit, p_gen  # , redun
         # this returns tensor.shape = (batch_size * max_seq_len, n_voca)

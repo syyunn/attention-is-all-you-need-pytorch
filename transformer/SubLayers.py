@@ -36,13 +36,13 @@ class MultiHeadAttention(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-
     def forward(self, q, k, v, mask=None):
 
         d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
 
         sz_b, len_q, _ = q.size()
         sz_b, len_k, _ = k.size()
+        # sz_b : batch size | len_k : length of src_input
         sz_b, len_v, _ = v.size()
 
         residual = q
@@ -65,6 +65,7 @@ class MultiHeadAttention(nn.Module):
         output = self.layer_norm(output + residual)
 
         return output, attn
+
 
 class PositionwiseFeedForward(nn.Module):
     ''' A two-feed-forward-layer module '''
